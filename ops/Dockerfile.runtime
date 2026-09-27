@@ -1,0 +1,52 @@
+# Dependency-only runtime image for the existing Python/Streamlit application.
+# Application source and credentials are deliberately not copied into this image.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    chromium \
+    chromium-driver \
+    espeak-ng \
+    ffmpeg \
+    git \
+    libgl1 \
+    libglib2.0-0 \
+    libportaudio2 \
+    nodejs \
+    npm \
+    portaudio19-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install \
+    aider-chat \
+    anthropic \
+    ddgs \
+    edge-tts \
+    faster-whisper \
+    flask \
+    google-genai \
+    nvidia-ml-py \
+    numpy \
+    openai \
+    opencv-python-headless \
+    openpyxl \
+    Pillow \
+    playwright \
+    pypdf \
+    pyserial \
+    pyttsx3 \
+    python-docx \
+    reportlab \
+    requests \
+    streamlit \
+    streamlit-paste-button
+
+EXPOSE 8504
+
+CMD ["python", "-m", "streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8504", "--server.headless=true", "--browser.gatherUsageStats=false"]

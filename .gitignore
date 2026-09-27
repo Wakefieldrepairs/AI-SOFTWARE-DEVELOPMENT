@@ -1,0 +1,48 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+credentials.json
+token.json
+secrets.json
+config.local.json
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Node and desktop builds
+node_modules/
+dist/
+build/
+src-tauri/target/
+
+# Local data and generated material
+backups/
+archives/
+restore_staging/
+temp_backup_staging/
+exports/
+saved_chats/
+saved_gems/
+repair_tickets/
+wp_browser_profile/
+wp_browser_profiles/
+playwright-report/
+*.log
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
