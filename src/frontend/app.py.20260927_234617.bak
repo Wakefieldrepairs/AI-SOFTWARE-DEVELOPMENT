@@ -222,7 +222,7 @@ with st.sidebar:
             backend_msg = f"● Connected: FastAPI running on port {API_PORT}"
         else:
             backend_msg = f"[Warning] Backend returned status code {resp.status_code}"
-    except Exception:
+    except Exception as e:
         backend_online = False
         backend_msg = f"[Disconnected] Cannot reach backend at {api_url}"
 
