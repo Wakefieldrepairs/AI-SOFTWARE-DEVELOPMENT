@@ -1,0 +1,24 @@
+"""Core module providing settings, logging, LLM orchestration, and security utilities."""
+
+from src.core.config import Settings, get_settings
+from src.core.llm import LLMClient, LLMResponse, Message
+from src.core.logging import setup_logging
+from src.core.security import (
+    ensure_gitignore_rules,
+    find_repo_root,
+    launch_backend_process,
+    scan_and_sanitize_workspace,
+)
+
+__all__ = [
+    "Settings",
+    "get_settings",
+    "setup_logging",
+    "LLMClient",
+    "LLMResponse",
+    "Message",
+    "scan_and_sanitize_workspace",
+    "launch_backend_process",
+    "ensure_gitignore_rules",
+    "find_repo_root",
+]

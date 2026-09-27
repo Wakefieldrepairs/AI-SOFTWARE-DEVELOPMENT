@@ -1,0 +1,109 @@
+"""Streamlit Developer Interface for Testing & Interacting with the AI Agent Platform."""
+
+import os
+import httpx
+import streamlit as st
+
+# Page configuration
+st.set_page_config(
+    page_title="AI Agent Dashboard",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Configuration from environment
+API_HOST = os.getenv("API_HOST", "localhost")
+API_PORT = os.getenv("API_PORT", "8000")
+DEFAULT_API_URL = os.getenv("API_URL", f"http://{API_HOST}:{API_PORT}/api/v1")
+
+# Sidebar: Environment & Settings
+with st.sidebar:
+    st.title("⚙️ Settings & Connectivity")
+    api_url = st.text_input("API Endpoint URL", value=DEFAULT_API_URL)
+    
+    st.markdown("---")
+    st.subheader("Model Hyperparameters")
+    custom_model = st.text_input("Model Name (Override)", value="")
+    temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=0.7, step=0.05)
+    max_tokens = st.slider("Max Tokens", min_value=128, max_value=4096, value=2048, step=128)
+    enable_streaming = st.checkbox("Stream Output", value=True)
+
+    st.markdown("---")
+    if st.button("Check Backend Health"):
+        try:
+            resp = httpx.get(f"{api_url}/health", timeout=5.0)
+            if resp.status_code == 200:
+                st.success("Backend is Online!")
+                st.json(resp.json())
+            else:
+                st.error(f"Backend returned status {resp.status_code}")
+        except Exception as e:
+            st.error(f"Connection error: {e!s}")
+
+# Main Chat Interface
+st.title("🤖 Collaborative AI Agent Playground")
+st.caption("Production-ready interface communicating directly with the FastAPI & LLM service layer.")
+
+# Initialize session messages
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "system", "content": "You are an expert AI software architect and assistant."}
+    ]
+
+# Render chat history (skip system prompt)
+for msg in st.session_state.messages:
+    if msg["role"] != "system":
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+# User prompt input
+if prompt := st.chat_input("Type your message..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    payload = {
+        "messages": st.session_state.messages,
+        "model": custom_model if custom_model.strip() else None,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": enable_streaming,
+    }
+
+    with st.chat_message("assistant"):
+        if enable_streaming:
+            response_text = ""
+            placeholder = st.empty()
+            try:
+                with httpx.stream(
+                    "POST",
+                    f"{api_url}/generate/stream",
+                    json=payload,
+                    timeout=60.0,
+                ) as r:
+                    if r.status_code != 200:
+                        placeholder.error(f"Error: Backend returned {r.status_code}")
+                    else:
+                        for chunk in r.iter_text():
+                            response_text += chunk
+                            placeholder.markdown(response_text + "▌")
+                        placeholder.markdown(response_text)
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
+            except Exception as e:
+                placeholder.error(f"Request failed: {e!s}")
+        else:
+            with st.spinner("Generating response..."):
+                try:
+                    resp = httpx.post(f"{api_url}/generate", json=payload, timeout=60.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        content = data.get("content", "")
+                        st.markdown(content)
+                        st.session_state.messages.append({"role": "assistant", "content": content})
+                        if data.get("fallback_used"):
+                            st.warning(f"Fallback model ({data.get('model_used')}) was utilized.")
+                    else:
+                        st.error(f"Error {resp.status_code}: {resp.text}")
+                except Exception as e:
+                    st.error(f"Request failed: {e!s}")

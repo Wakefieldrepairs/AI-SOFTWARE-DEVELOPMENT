@@ -1,0 +1,65 @@
+"""Unit tests for DevOps and security utilities."""
+
+import tempfile
+from pathlib import Path
+import pytest
+
+from src.core.security import (
+    ensure_gitignore_rules,
+    read_env_file,
+    scan_and_sanitize_workspace,
+    update_env_example,
+    write_env_file,
+)
+
+
+def test_scan_and_sanitize_all_keys():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        py_file = root / "test_script.py"
+        py_file.write_text(
+            'openai_key = "sk-1234567890abcdef1234567890abcdef"\n'
+            'anthropic_key = "sk-ant-1234567890abcdef1234567890abcdef"\n'
+            'gemini_key = "AIzaSyD1234567890abcdef1234567890abcdef"\n'
+        )
+
+        res = scan_and_sanitize_workspace(root)
+        assert res["keys_secured"] == 3
+        assert "OPENAI_API_KEY" in res["unique_keys"]
+        assert "ANTHROPIC_API_KEY" in res["unique_keys"]
+        assert "GEMINI_API_KEY" in res["unique_keys"]
+        assert "test_script.py" in res["files_modified"]
+
+        content = py_file.read_text()
+        assert 'os.getenv("OPENAI_API_KEY", "")' in content
+        assert 'os.getenv("ANTHROPIC_API_KEY", "")' in content
+        assert 'os.getenv("GEMINI_API_KEY", "")' in content
+        assert "import os" in content
+        assert "from dotenv import load_dotenv" in content
+
+        env_vars = read_env_file(root / ".env")
+        assert env_vars["OPENAI_API_KEY"] == "sk-1234567890abcdef1234567890abcdef"
+        assert env_vars["ANTHROPIC_API_KEY"] == "sk-ant-1234567890abcdef1234567890abcdef"
+        assert env_vars["GEMINI_API_KEY"] == "AIzaSyD1234567890abcdef1234567890abcdef"
+
+        example_vars = read_env_file(root / ".env.example")
+        assert example_vars["OPENAI_API_KEY"] == "your_key_here"
+        assert example_vars["ANTHROPIC_API_KEY"] == "your_key_here"
+        assert example_vars["GEMINI_API_KEY"] == "your_key_here"
+
+        gitignore_content = (root / ".gitignore").read_text()
+        assert ".env" in gitignore_content
+        assert "*.safetensors" in gitignore_content
+
+
+def test_gitignore_preservation():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        gitignore = root / ".gitignore"
+        gitignore.write_text(".env\n.venv/\n")
+
+        added = ensure_gitignore_rules(gitignore)
+        assert ".env" not in added
+        assert "*.safetensors" in added
+        content_lines = [line.strip() for line in gitignore.read_text().splitlines() if line.strip()]
+        assert content_lines.count(".env") == 1

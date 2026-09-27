@@ -1,0 +1,50 @@
+version: "3.8"
+
+services:
+  # FastAPI Backend API Service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_agent_api
+    restart: unless-stopped
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    volumes:
+      - ./src:/app/src
+    extra_hosts:
+      # Allows container to communicate with local host Ollama/vLLM endpoints
+      - "host.docker.internal:host-gateway"
+    networks:
+      - agent_network
+
+  # Streamlit Frontend Developer UI Service
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_agent_ui
+    restart: unless-stopped
+    command: ["streamlit", "run", "src/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - API_URL=http://api:8000/api/v1
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      - api
+    networks:
+      - agent_network
+
+networks:
+  agent_network:
+    driver: bridge

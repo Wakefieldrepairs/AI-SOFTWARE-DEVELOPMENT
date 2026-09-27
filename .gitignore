@@ -1,48 +1,101 @@
-# Secrets and local configuration
-.env
-.env.*
-!.env.example
-credentials.json
-token.json
-secrets.json
-config.local.json
-*.key
-*.pem
-*.p12
-*.pfx
-
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
 .venv/
 venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.secret
+
+# Unit test / coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
 .pytest_cache/
+
+# Type checking & linting caches
 .mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
 
-# Node and desktop builds
-node_modules/
-dist/
-build/
-src-tauri/target/
+# AI/ML Model Weights & Data Artifacts
+models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.gguf
+*.h5
+*.tflite
+*.tar.gz
 
-# Local data and generated material
-backups/
-archives/
-restore_staging/
-temp_backup_staging/
-exports/
-saved_chats/
-saved_gems/
-repair_tickets/
-wp_browser_profile/
-wp_browser_profiles/
-playwright-report/
-*.log
+# Streamlit & UI artifacts
+.streamlit/
 
-# Editors and operating systems
+# Docker artifacts
+*.docker.log
+
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# IDE & Editor files
 .idea/
 .vscode/
 *.swp
-.DS_Store
-Thumbs.db
-desktop.ini
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+# Critical Security & DevOps Rules
+*.env

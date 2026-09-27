@@ -1,0 +1,284 @@
+from dotenv import load_dotenv
+load_dotenv()
+
+"""Streamlit Developer Interface Entry Point for Testing & Interacting with the AI Agent Platform."""
+
+import os
+import sys
+import time
+from pathlib import Path
+
+# Ensure root directory is on python path
+root_path = Path(__file__).resolve().parent
+if str(root_path) not in sys.path:
+    sys.path.insert(0, str(root_path))
+
+import httpx
+import streamlit as st
+from src.core.security import (
+    ensure_gitignore_rules,
+    launch_backend_process,
+    scan_and_sanitize_workspace,
+)
+
+# Page configuration
+st.set_page_config(
+    page_title="AI Agent Dashboard",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Configuration from environment
+API_HOST = os.getenv("API_HOST", "localhost")
+API_PORT = os.getenv("API_PORT", "8000")
+DEFAULT_API_URL = os.getenv("API_URL", f"http://{API_HOST}:{API_PORT}/api/v1")
+
+# Sidebar: Environment & Settings
+with st.sidebar:
+    st.title("⚙️ Settings & Connectivity")
+    api_url = st.text_input("API Endpoint URL", value=DEFAULT_API_URL)
+
+    st.markdown("---")
+    st.subheader("Model Hyperparameters")
+    custom_model = st.text_input("Model Name (Override)", value="")
+    temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=0.7, step=0.05)
+    max_tokens = st.slider("Max Tokens", min_value=128, max_value=4096, value=2048, step=128)
+    enable_streaming = st.checkbox("Stream Output", value=True)
+
+    st.markdown("---")
+    st.subheader("🛠️ Runtime & Process Management")
+
+    # Backend health check status
+    backend_online = False
+    try:
+        resp = httpx.get(f"{api_url}/health", timeout=2.0)
+        if resp.status_code == 200:
+            backend_online = True
+            st.success("🟢 Backend is Online & Reachable")
+        else:
+            st.warning(f"⚠️ Backend returned status {resp.status_code}")
+    except Exception:
+        st.error("🔴 Backend Offline ([WinError 10061] / Connection Refused)")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Refresh Health", use_container_width=True):
+            st.rerun()
+
+    with col2:
+        if st.button("🚀 Start FastAPI Backend (Port 8000)", use_container_width=True):
+            try:
+                port_int = int(API_PORT) if API_PORT.isdigit() else 8000
+            except Exception:
+                port_int = 8000
+            success, msg = launch_backend_process(root_dir=root_path, port=port_int)
+            if success:
+                st.success(msg)
+                time.sleep(1.5)
+                st.rerun()
+            else:
+                st.error(msg)
+
+    st.markdown("---")
+    st.subheader("🛡️ DevOps & Security Suite")
+    st.caption("Scan workspace for secrets, sanitize Python files, and protect `.env` & `.gitignore`.")
+
+    if st.button("🔒 Run Security Scan & Credential Isolation", use_container_width=True):
+        with st.spinner("Scanning workspace..."):
+            report = scan_and_sanitize_workspace(root_dir=root_path)
+
+        st.success("✅ Workspace Security Audit Complete!")
+        st.markdown(f"- **Hardcoded Keys Secured:** `{report['keys_secured']}`")
+        if report["unique_keys"]:
+            st.markdown(f"- **Variables Extracted:** `{', '.join(report['unique_keys'])}`")
+        st.markdown(f"- **Modified Files:** `{len(report['files_modified'])}`")
+        if report["files_modified"]:
+            with st.expander("View Modified Files"):
+                for f in report["files_modified"]:
+                    st.write(f"• `{f}`")
+        if report["added_to_env"]:
+            st.info(f"Added to `.env`: `{', '.join(report['added_to_env'])}`")
+        if report["added_to_example"]:
+            st.info(f"Updated `.env.example`: `{', '.join(report['added_to_example'])}`")
+        if report["added_gitignore"]:
+            st.warning(f"Appended rules to `.gitignore`: `{', '.join(report['added_gitignore'])}`")
+        else:
+            st.write("• `.gitignore` rules verified and complete.")
+
+
+# Main Layout Tabs
+tab_playground, tab_docs = st.tabs(["🤖 AI Agent Playground", "📘 Collaboration & Operations Manual"])
+
+with tab_playground:
+    st.title("🤖 Collaborative AI Agent Playground")
+    st.caption("Production-ready interface communicating directly with the FastAPI & LLM service layer.")
+
+    # Initialize session messages
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {"role": "system", "content": "You are an expert AI software architect and assistant."}
+        ]
+
+    # Render chat history (skip system prompt)
+    for msg in st.session_state.messages:
+        if msg["role"] != "system":
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+    # User prompt input
+    if prompt := st.chat_input("Type your message..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        payload = {
+            "messages": st.session_state.messages,
+            "model": custom_model if custom_model.strip() else None,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": enable_streaming,
+        }
+
+        with st.chat_message("assistant"):
+            if enable_streaming:
+                response_text = ""
+                placeholder = st.empty()
+                try:
+                    with httpx.stream(
+                        "POST",
+                        f"{api_url}/generate/stream",
+                        json=payload,
+                        timeout=60.0,
+                    ) as r:
+                        if r.status_code != 200:
+                            placeholder.error(f"Error: Backend returned {r.status_code}")
+                        else:
+                            for chunk in r.iter_text():
+                                response_text += chunk
+                                placeholder.markdown(response_text + "▌")
+                            placeholder.markdown(response_text)
+                    st.session_state.messages.append({"role": "assistant", "content": response_text})
+                except Exception as e:
+                    placeholder.error(f"Request failed: {e!s}")
+            else:
+                with st.spinner("Generating response..."):
+                    try:
+                        resp = httpx.post(f"{api_url}/generate", json=payload, timeout=60.0)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            content = data.get("content", "")
+                            st.markdown(content)
+                            st.session_state.messages.append({"role": "assistant", "content": content})
+                            if data.get("fallback_used"):
+                                st.warning(f"Fallback model ({data.get('model_used')}) was utilized.")
+                        else:
+                            st.error(f"Error {resp.status_code}: {resp.text}")
+                    except Exception as e:
+                        st.error(f"Request failed: {e!s}")
+
+
+with tab_docs:
+    st.title("📘 Collaboration & Operations Manual")
+    st.caption("Comprehensive operational, security, and architectural documentation for developers and collaborators.")
+
+    st.markdown("""
+    ### 1. 🏗️ System Architecture & Data Flow
+    The platform is built as a robust two-tier architecture designed for credential isolation and local/remote LLM orchestration:
+    ```
+    ┌────────────────────────────────────────────────────────┐
+    │               Streamlit Frontend (Port 8501)           │
+    │  - Interactive Playground UI                           │
+    │  - One-Click Backend Launcher                          │
+    │  - In-App Security & Credential Isolation Engine       │
+    └───────────────────────────┬────────────────────────────┘
+                                │ HTTP / REST (JSON & Streaming)
+                                ▼
+    ┌────────────────────────────────────────────────────────┐
+    │                 FastAPI Backend (Port 8000)            │
+    │  - /api/v1/health (Health check & telemetry)           │
+    │  - /api/v1/generate (Synchronous completion)           │
+    │  - /api/v1/generate/stream (Streaming SSE completion)  │
+    │  - Resilient LLM fallback & retry logic                │
+    └───────────────────────────┬────────────────────────────┘
+                                │ Async HTTP Client / LiteLLM / OpenAI API
+                                ▼
+    ┌────────────────────────────────────────────────────────┐
+    │                 LLM Engine & Runtime                   │
+    │  - Local: Ollama / vLLM (http://localhost:11434/v1)    │
+    │  - Remote: OpenAI, Anthropic Claude, Google Gemini     │
+    └────────────────────────────────────────────────────────┘
+    ```
+
+    ---
+
+    ### 2. 🐙 GitHub Collaboration Protocol (Git Without Secret Leaks)
+    To prevent catastrophic credential leaks to public GitHub repositories, follow this standard three-step workflow before every push:
+
+    #### Step 1: Run In-App Security Scan
+    - In the sidebar under **🛡️ DevOps & Security Suite**, click **"Run Security Scan & Credential Isolation"**.
+    - This automatically removes all hardcoded OpenAI, Anthropic, or Gemini tokens from `.py` files, moves them into `.env`, updates `.env.example`, and secures `.gitignore`.
+
+    #### Step 2: Sync Collaborator Changes
+    - Fetch the latest changes from the remote branch:
+      ```bash
+      git pull origin main
+      ```
+
+    #### Step 3: Stage and Commit Safe Code
+    - Verify `.env` is ignored by Git, then stage and commit:
+      ```bash
+      git status
+      git add .
+      git commit -m "feat: description of new features"
+      git push origin main
+      ```
+
+    ---
+
+    ### 3. 🔌 Connection Error Resolver (`[WinError 10061]` & Connection Refused)
+    **What causes this error?**
+    `[WinError 10061] No connection could be made because the target machine actively refused it` occurs when the Streamlit UI attempts to connect to `http://localhost:8000`, but the FastAPI backend is not currently running or bound to a different port.
+
+    **How to resolve it:**
+    1. **One-Click Launch:** Click **"🚀 Start FastAPI Backend (Port 8000)"** in the sidebar. This starts the FastAPI Uvicorn process immediately.
+    2. **Manual CLI Launch:** Open a terminal in the project root and run:
+       ```bash
+       # Windows
+       .venv\\Scripts\\activate
+       python -m uvicorn src.api.main:app --reload --port 8000
+
+       # Linux / macOS
+       source .venv/bin/activate
+       python -m uvicorn src.api.main:app --reload --port 8000
+       ```
+    3. **Verify Port & Firewall:** Ensure no other service is occupying port `8000` (`netstat -ano | findstr :8000` on Windows, or `lsof -i :8000` on Linux/macOS).
+
+    ---
+
+    ### 4. ⚙️ Model Endpoint & `.env` Configuration
+    Configure model runtimes by setting parameters in your local `.env` file:
+
+    - **Local Ollama Runtime (Default):**
+      ```env
+      LLM_BASE_URL="http://localhost:11434/v1"
+      LLM_API_KEY="ollama"
+      LLM_DEFAULT_MODEL="llama3.2:latest"
+      LLM_FALLBACK_MODEL="llama3.2:1b"
+      ```
+
+    - **Remote OpenAI API:**
+      ```env
+      LLM_BASE_URL="https://api.openai.com/v1"
+      LLM_API_KEY=os.getenv("OPENAI_API_KEY", "")
+      LLM_DEFAULT_MODEL="gpt-4o"
+      LLM_FALLBACK_MODEL="gpt-4o-mini"
+      ```
+
+    - **Local vLLM / LiteLLM Proxy:**
+      ```env
+      LLM_BASE_URL="http://localhost:8000/v1"
+      LLM_API_KEY="none"
+      LLM_DEFAULT_MODEL="meta-llama/Llama-3.1-8B-Instruct"
+      ```
+    """)
