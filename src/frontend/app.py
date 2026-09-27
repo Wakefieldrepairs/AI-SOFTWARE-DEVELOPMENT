@@ -187,8 +187,9 @@ def run_git_command(args: List[str], cwd: Path = None) -> Tuple[bool, str]:
         else:
             err_output = res.stderr.strip() if res.stderr.strip() else res.stdout.strip()
             return False, err_output
-    except Exception as e:
-        return False, f"Git execution error: {e!s}"
+    except Exception:
+        backend_online = False
+        backend_msg = f"[Disconnected] Cannot reach backend at {api_url}"
 
 
 # Configuration from environment
