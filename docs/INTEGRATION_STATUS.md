@@ -14,7 +14,8 @@ The goal is a separate, standalone desktop application. It must not share an ide
 - The live application service was rechecked on 27 September 2026: it was active, had no recorded restarts, and returned HTTP 200 on its loopback health check.
 - Earlier end-to-end browser verification opened the real interface and completed Hardware Lab -> SMD & EIA-96 Code Decoder -> `472` -> `4.70 kOhm (4,700 ohm)`.
 - The public GitHub repository has been connected to Chris's workstation, and Chris's GitHub account has push access.
-- Sensitive credential and token files found in the supplied snapshot were excluded and removed from the retained working material without displaying their contents.
+- Sensitive credential, token, and browser-session material found in the supplied snapshot was excluded and removed from the retained working material without displaying its contents.
+- The NAS runtime image was rebuilt without embedded application source or credentials. All three existing John-app services now run that clean image; the older image and its unused build cache were removed after the replacement passed a live smoke test.
 
 ## Not yet complete
 
