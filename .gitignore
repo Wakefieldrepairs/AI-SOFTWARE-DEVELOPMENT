@@ -99,3 +99,4 @@ Desktop.ini
 .settings/
 # Critical Security & DevOps Rules
 *.env
+.env

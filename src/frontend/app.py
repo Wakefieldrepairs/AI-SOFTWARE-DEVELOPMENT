@@ -2,29 +2,28 @@ from dotenv import load_dotenv
 load_dotenv()
 
 """
-Unified Collaborative AI Agent Playground & Direct GitHub Hub (Option B)
+Collaborative AI Agent Playground & GitHub Hub
 Streamlit Developer Interface
 """
 
 import os
 import sys
 import time
-import shutil
 import subprocess
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
-# Ensure root directory is on python path
-root_path = Path(__file__).resolve().parent.parent.parent
-if str(root_path) not in sys.path:
-    sys.path.insert(0, str(root_path))
+# Path Safety: Strictly scope repo_root to project root
+# Path(__file__).resolve().parent.parent.parent -> src/frontend/app.py -> src/frontend -> src -> root
+repo_root = Path(__file__).resolve().parent.parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
 
 import httpx
 import streamlit as st
 from src.core.security import (
     ensure_gitignore_rules,
-    find_repo_root,
     launch_backend_process,
     scan_and_sanitize_workspace,
 )
@@ -78,15 +77,6 @@ button[kind="primary"], .stButton > button {
     color: #ff4b4b !important;
 }
 
-/* Cards & Containers */
-.card-container {
-    background-color: #1a1f2c;
-    border: 1px solid #2b313e;
-    border-radius: 10px;
-    padding: 16px 20px;
-    margin-bottom: 16px;
-}
-
 /* Status & Alert Banners */
 .banner-error {
     background-color: #4a151b !important;
@@ -120,7 +110,7 @@ button[kind="primary"], .stButton > button {
     font-size: 0.95rem;
 }
 
-/* Chat input bar - pill styling docked at bottom */
+/* Chat input bar */
 [data-testid="stChatInput"] {
     background-color: #161a23 !important;
     border-radius: 28px !important;
@@ -158,7 +148,7 @@ button[kind="primary"], .stButton > button {
     border-bottom: 2px solid #ff4b4b !important;
 }
 
-/* Code blocks & pre */
+/* Code blocks */
 code, pre {
     background-color: #161a23 !important;
     color: #38bdf8 !important;
@@ -169,56 +159,34 @@ code, pre {
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-def find_repo_root(start_dir: Path | str | None = None) -> Path:
-    """
-    Searches upwards from start_dir, current working directory, and script directory
-    for a folder containing '.git' to locate the actual repository root.
-    """
-    search_starts = []
-    if start_dir is not None:
-        search_starts.append(Path(start_dir).resolve())
-    search_starts.append(Path(__file__).resolve().parent)
-    search_starts.append(Path.cwd().resolve())
 
-    for candidate in search_starts:
-        curr = candidate
-        while True:
-            if (curr / ".git").exists():
-                return curr
-            if curr.parent == curr:
-                break
-            curr = curr.parent
-
-    if start_dir is not None:
-        return Path(start_dir).resolve()
-    return root_path
-
-# Dynamic repository root discovering .git upwards
-repo_root = find_repo_root(root_path)
-
-# Helper for Git operations
 def run_git_command(args: List[str], cwd: Path = None) -> Tuple[bool, str]:
-    """Run git subprocess safely with try/except, handling environments without git installed."""
-    git_bin = shutil.which("git")
-    if not git_bin:
-        return False, "Git executable not found in system PATH. Please ensure Git is installed."
-    target_cwd = cwd if cwd is not None else find_repo_root(root_path)
+    """
+    Synchronous Git execution helper using subprocess.run.
+    Prevents prompt freezes using environment flags and creationflags on Windows.
+    """
+    target_cwd = cwd if cwd is not None else repo_root
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = "echo"
+
+    kwargs: Dict[str, Any] = {
+        "cwd": str(target_cwd),
+        "capture_output": True,
+        "text": True,
+        "env": env,
+    }
+
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     try:
-        res = subprocess.run(
-            [git_bin] + args,
-            cwd=str(target_cwd),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        res = subprocess.run(["git"] + args, **kwargs)
         if res.returncode == 0:
-            output = res.stdout.strip() if res.stdout.strip() else res.stderr.strip()
-            return True, output if output else "Command executed successfully with no output."
+            return True, res.stdout.strip()
         else:
-            err = res.stderr.strip() if res.stderr.strip() else res.stdout.strip()
-            return False, err if err else f"Git command failed with exit code {res.returncode}"
-    except subprocess.TimeoutExpired:
-        return False, "Git operation timed out (30s limit)."
+            err_output = res.stderr.strip() if res.stderr.strip() else res.stdout.strip()
+            return False, err_output
     except Exception as e:
         return False, f"Git execution error: {e!s}"
 
@@ -229,7 +197,7 @@ API_PORT = os.getenv("API_PORT", "8000")
 DEFAULT_API_URL = os.getenv("API_URL", f"http://{API_HOST}:{API_PORT}/api/v1")
 
 # ========================================== #
-# SIDEBAR: Connectivity & Hyperparameters    #
+# SIDEBAR: Settings & Backend Health         #
 # ========================================== #
 with st.sidebar:
     st.markdown("### ⚙️ Connectivity & Settings")
@@ -244,8 +212,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 🔌 Backend Health Check & Launcher")
-    
-    # Backend ping check
+
     backend_online = False
     backend_msg = ""
     try:
@@ -257,7 +224,7 @@ with st.sidebar:
             backend_msg = f"[Warning] Backend returned status code {resp.status_code}"
     except Exception as e:
         backend_online = False
-        backend_msg = "[WinError 10061] No connection could be made because the target machine actively refused it"
+        backend_msg = f"[Disconnected] Cannot reach backend at {api_url}"
 
     if backend_online:
         st.markdown(f'<div class="banner-success">{backend_msg}</div>', unsafe_allow_html=True)
@@ -269,60 +236,56 @@ with st.sidebar:
         if st.button("🔄 Ping / Docs", use_container_width=True):
             st.rerun()
     with col_launch:
-        if st.button("🚀 Launch FastAPI Backend", use_container_width=True):
+        if st.button("🚀 Launch Backend", use_container_width=True):
             try:
                 port_int = int(API_PORT) if str(API_PORT).isdigit() else 8000
             except Exception:
                 port_int = 8000
-            success, msg = launch_backend_process(root_dir=root_path, port=port_int)
+            success, msg = launch_backend_process(root_dir=repo_root, port=port_int)
             if success:
-                st.success(msg)
-                time.sleep(1.5)
+                st.success(f"✅ Backend launched! {msg}")
+                time.sleep(1.0)
                 st.rerun()
             else:
-                st.error(msg)
-
-    st.markdown("---")
-    st.caption("🚀 Collaborative AI Agent Platform v1.0.0\nRepository: Wakefieldrepairs/AI-SOFTWARE-DEVELOPMENT")
+                st.error(f"❌ Launch failed: {msg}")
 
 
 # ========================================== #
-# MAIN WORKSPACE TABS                        #
+# MAIN TABS                                  #
 # ========================================== #
-tab_chat, tab_github, tab_guide = st.tabs([
-    "💬 AI Agent Playground",
+tab_playground, tab_github, tab_guide = st.tabs([
+    "🤖 AI Agent Playground",
     "🐙 GitHub Collaboration Hub",
-    "📘 Operations & Workflow Guide",
+    "📘 Operations Guide",
 ])
 
 # ------------------------------------------ #
-# TAB 1: 💬 AI Agent Playground             #
+# TAB 1: 🤖 AI Agent Playground             #
 # ------------------------------------------ #
-with tab_chat:
-    st.markdown("## 💬 Collaborative AI Agent Playground")
-    st.markdown("Interact directly with AI agents orchestrated via the local FastAPI backend with direct fallback execution.")
+with tab_playground:
+    st.markdown("## 🤖 Collaborative AI Agent Playground")
+    st.caption("Interact with your LLM agents via FastAPI backend, or use direct LLM fallback.")
 
-    # Initialize session messages
+    # Session State Chat History
     if "messages" not in st.session_state:
         st.session_state.messages = [
-            {"role": "system", "content": "You are an expert AI software development architect assisting team collaborators."}
+            {"role": "assistant", "content": "Hello! I am your AI Agent assistant. How can I help with your project today?"}
         ]
 
-    # Render conversation history (excluding system prompt)
+    # Render Chat History
     for msg in st.session_state.messages:
-        if msg["role"] != "system":
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-    # Chat input docked at bottom
-    if user_prompt := st.chat_input("Type your message to the AI agent..."):
-        st.session_state.messages.append({"role": "user", "content": user_prompt})
+    # Chat Input
+    if user_input := st.chat_input("Type your prompt or instructions..."):
+        st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
-            st.markdown(user_prompt)
+            st.markdown(user_input)
 
         payload = {
             "messages": st.session_state.messages,
-            "model": custom_model if custom_model.strip() else None,
+            "model": custom_model.strip() if custom_model.strip() else None,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": enable_streaming,
@@ -331,8 +294,7 @@ with tab_chat:
         with st.chat_message("assistant"):
             assistant_response = ""
             placeholder = st.empty()
-            
-            # Try backend first
+
             used_backend = False
             if backend_online:
                 try:
@@ -368,7 +330,7 @@ with tab_chat:
                 except Exception as ex:
                     placeholder.warning(f"Backend communication error ({ex!s}). Switching to direct LLM fallback...")
 
-            # Direct LLM Client Fallback if backend offline or failed
+            # Direct LLM Client Fallback
             if not used_backend:
                 try:
                     settings = get_settings()
@@ -380,7 +342,7 @@ with tab_chat:
                         timeout_seconds=settings.request_timeout_seconds,
                     )
                     msg_objs = [Message(role=m["role"], content=m["content"]) for m in st.session_state.messages]
-                    
+
                     if enable_streaming:
                         async def run_direct_stream():
                             res_acc = ""
@@ -418,18 +380,17 @@ with tab_chat:
 # TAB 2: 🐙 GitHub Collaboration Hub       #
 # ------------------------------------------ #
 with tab_github:
-    st.markdown("## 🐙 GitHub Collaboration Hub (Option B)")
-    st.markdown("Collaborate seamlessly on **`Wakefieldrepairs/AI-SOFTWARE-DEVELOPMENT`** (with collaborator **`Gthebear`**) without terminal commands.")
+    st.markdown("## 🐙 GitHub Collaboration Hub")
+    st.markdown("Collaborate seamlessly on your repository without terminal commands.")
 
-    # Top status container
     st.markdown("### 🛠️ One-Click Repository Automation")
-    
+
     col_pull, col_sec, col_push = st.columns(3)
-    
-    # Action 1: Pull Latest Work
+
+    # Action 1: Sync / Pull Remote
     with col_pull:
         st.markdown("#### 1. Sync Remote Work")
-        if st.button("⬇️ Pull Chris's Latest Work", use_container_width=True):
+        if st.button("⬇️ Pull Latest Work", use_container_width=True):
             with st.spinner("Pulling latest commits from origin/main..."):
                 success, output = run_git_command(["pull", "origin", "main"], cwd=repo_root)
             if success:
@@ -445,7 +406,7 @@ with tab_github:
         if st.button("🛡️ Sanitize Secrets & Update .gitignore", use_container_width=True):
             with st.spinner("Scanning workspace for API secrets and validating .gitignore..."):
                 report = scan_and_sanitize_workspace(root_dir=repo_root)
-            
+
             st.success("✅ Workspace Security Audit Complete!")
             st.markdown(f"- **Hardcoded Keys Secured:** `{report['keys_secured']}`")
             if report["unique_keys"]:
@@ -473,21 +434,13 @@ with tab_github:
                 st.error("Please provide a commit message before pushing.")
             else:
                 with st.spinner("Sanitizing, staging non-sensitive files, and pushing..."):
-                    # Step A: Ensure .env is never staged and gitignore is secure
                     ensure_gitignore_rules(repo_root / ".gitignore")
-                    
-                    # Step B: Add changes
+
                     add_ok, add_out = run_git_command(["add", "."], cwd=repo_root)
-                    
-                    # Step C: Reset .env just in case it was tracked
                     run_git_command(["reset", ".env"], cwd=repo_root)
-                    
-                    # Step D: Commit
                     commit_ok, commit_out = run_git_command(["commit", "-m", commit_msg], cwd=repo_root)
-                    
-                    # Step E: Push
                     push_ok, push_out = run_git_command(["push", "origin", "main"], cwd=repo_root)
-                    
+
                 if push_ok:
                     st.success("🚀 Successfully pushed changes to `origin/main`!")
                     st.code(push_out, language="bash")
@@ -502,39 +455,37 @@ with tab_github:
     st.markdown("### 📊 Remote & Local Repository Status")
 
     col_log, col_status = st.columns(2)
-    
+
     with col_log:
         st.markdown("#### 📜 Recent Commit History (`git log -n 5`)")
-        log_ok, log_out = run_git_command(["log", "-n", "5", "--oneline"], cwd=repo_root)
-        if log_ok:
-            st.code(log_out, language="bash")
-        else:
-            st.markdown(f'<div class="banner-info">{log_out}</div>', unsafe_allow_html=True)
+        if st.button("View Recent Commits", use_container_width=True):
+            log_ok, log_out = run_git_command(["log", "-n", "5", "--oneline"], cwd=repo_root)
+            if log_ok:
+                st.code(log_out, language="bash")
+            else:
+                st.error(log_out)
 
     with col_status:
         st.markdown("#### 📝 Pending Modified & Untracked Files (`git status`)")
-        status_ok, status_out = run_git_command(["status", "--short"], cwd=repo_root)
-        if status_ok:
-            if status_out.strip():
+        if st.button("Run Git Status", use_container_width=True):
+            status_ok, status_out = run_git_command(["status"], cwd=repo_root)
+            if status_ok:
                 st.code(status_out, language="bash")
             else:
-                st.success("✨ Working tree clean. No pending uncommitted changes.")
-        else:
-            st.markdown(f'<div class="banner-info">{status_out}</div>', unsafe_allow_html=True)
+                st.error(status_out)
 
 
 # ------------------------------------------ #
-# TAB 3: 📘 Operations & Workflow Guide      #
+# TAB 3: 📘 Operations & Architecture Guide  #
 # ------------------------------------------ #
 with tab_guide:
     st.markdown("## 📘 Operations & Architecture Workflow Guide")
-    st.caption("Operational manual for seamless collaboration, architecture understanding, and troubleshooting.")
+    st.caption("Operational manual for seamless collaboration and deployment.")
 
     st.markdown("""
-    ### 1. 🏗️ Two-Tier Decoupled Architecture
-    The platform isolates the user experience layer from the execution and inference layer:
-    
-    ```
+    ### 1. 🏗️ Platform Architecture Topology
+
+    ```text
     ┌────────────────────────────────────────────────────────┐
     │               Streamlit UI (Frontend Port 8501)         │
     │  - AI Agent Chat Playground with streaming output      │
@@ -559,7 +510,7 @@ with tab_guide:
     └────────────────────────────────────────────────────────┘
     ```
 
-    --- 
+    ---
 
     ### 2. 🛡️ Secret Isolation & Repository Safety
     To protect credentials from being exposed on GitHub:
@@ -567,11 +518,11 @@ with tab_guide:
     - **Sanitize Utility**: The built-in scanner detects exposed keys in `.py` files, moves them to `.env`, creates a sanitized `.env.example`, and appends `.env` to `.gitignore`.
     - **Protected Push Pipeline**: The one-click Git push utility automatically verifies `.gitignore` rules and un-stages `.env` before any commit is performed.
 
-    --- 
+    ---
 
-    ### 3. 🔌 Resolving Port 8000 Connection Errors (`[WinError 10061]`)
-    If you see `[WinError 10061] No connection could be made because the target machine actively refused it`:
-    1. **One-Click Launch**: Click **🚀 Launch FastAPI Backend** in the sidebar. This spawns the backend server in a dedicated process.
+    ### 3. 🔌 Resolving Port 8000 Connection Errors
+    If you see backend connection errors:
+    1. **One-Click Launch**: Click **🚀 Launch Backend** in the sidebar. This spawns the backend server in a dedicated process.
     2. **Manual Launch (Terminal alternative)**:
        ```bash
        # Windows

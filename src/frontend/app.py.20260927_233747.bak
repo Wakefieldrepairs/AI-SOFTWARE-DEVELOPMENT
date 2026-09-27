@@ -24,6 +24,7 @@ import httpx
 import streamlit as st
 from src.core.security import (
     ensure_gitignore_rules,
+    find_repo_root,
     launch_backend_process,
     scan_and_sanitize_workspace,
 )
@@ -168,56 +169,27 @@ code, pre {
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-def find_repo_root(start_dir: Path | str | None = None) -> Path:
-    """
-    Searches upwards from start_dir, current working directory, and script directory
-    for a folder containing '.git' to locate the actual repository root.
-    """
-    search_starts = []
-    if start_dir is not None:
-        search_starts.append(Path(start_dir).resolve())
-    search_starts.append(Path(__file__).resolve().parent)
-    search_starts.append(Path.cwd().resolve())
+# Hardcoded repository root to prevent accidental C:\ drive scans freezing the app
+repo_root = Path("E:/AI-SOFTWARE-DEVELOPMENT")
 
-    for candidate in search_starts:
-        curr = candidate
-        while True:
-            if (curr / ".git").exists():
-                return curr
-            if curr.parent == curr:
-                break
-            curr = curr.parent
-
-    if start_dir is not None:
-        return Path(start_dir).resolve()
-    return root_path
-
-# Dynamic repository root discovering .git upwards
-repo_root = find_repo_root(root_path)
-
-# Helper for Git operations
 def run_git_command(args: List[str], cwd: Path = None) -> Tuple[bool, str]:
-    """Run git subprocess safely with try/except, handling environments without git installed."""
-    git_bin = shutil.which("git")
-    if not git_bin:
-        return False, "Git executable not found in system PATH. Please ensure Git is installed."
-    target_cwd = cwd if cwd is not None else find_repo_root(root_path)
+    """
+    Simplified Git execution based on the successful minimal test script.
+    Bypasses complex wrappers that were locking the Streamlit thread.
+    """
+    target_cwd = cwd if cwd is not None else repo_root
     try:
         res = subprocess.run(
-            [git_bin] + args,
+            ["git"] + args,
             cwd=str(target_cwd),
             capture_output=True,
-            text=True,
-            timeout=30,
+            text=True
         )
         if res.returncode == 0:
-            output = res.stdout.strip() if res.stdout.strip() else res.stderr.strip()
-            return True, output if output else "Command executed successfully with no output."
+            return True, res.stdout.strip()
         else:
-            err = res.stderr.strip() if res.stderr.strip() else res.stdout.strip()
-            return False, err if err else f"Git command failed with exit code {res.returncode}"
-    except subprocess.TimeoutExpired:
-        return False, "Git operation timed out (30s limit)."
+            err_output = res.stderr.strip() if res.stderr.strip() else res.stdout.strip()
+            return False, err_output
     except Exception as e:
         return False, f"Git execution error: {e!s}"
 
@@ -472,19 +444,11 @@ with tab_github:
                 st.error("Please provide a commit message before pushing.")
             else:
                 with st.spinner("Sanitizing, staging non-sensitive files, and pushing..."):
-                    # Step A: Ensure .env is never staged and gitignore is secure
                     ensure_gitignore_rules(repo_root / ".gitignore")
                     
-                    # Step B: Add changes
                     add_ok, add_out = run_git_command(["add", "."], cwd=repo_root)
-                    
-                    # Step C: Reset .env just in case it was tracked
                     run_git_command(["reset", ".env"], cwd=repo_root)
-                    
-                    # Step D: Commit
                     commit_ok, commit_out = run_git_command(["commit", "-m", commit_msg], cwd=repo_root)
-                    
-                    # Step E: Push
                     push_ok, push_out = run_git_command(["push", "origin", "main"], cwd=repo_root)
                     
                 if push_ok:
@@ -504,22 +468,21 @@ with tab_github:
     
     with col_log:
         st.markdown("#### 📜 Recent Commit History (`git log -n 5`)")
-        log_ok, log_out = run_git_command(["log", "-n", "5", "--oneline"], cwd=repo_root)
-        if log_ok:
-            st.code(log_out, language="bash")
-        else:
-            st.markdown(f'<div class="banner-info">{log_out}</div>', unsafe_allow_html=True)
+        if st.button("View Recent Commits", use_container_width=True):
+            log_ok, log_out = run_git_command(["log", "-n", "5", "--oneline"], cwd=repo_root)
+            if log_ok:
+                st.code(log_out, language="bash")
+            else:
+                st.error(log_out)
 
     with col_status:
         st.markdown("#### 📝 Pending Modified & Untracked Files (`git status`)")
-        status_ok, status_out = run_git_command(["status", "--short"], cwd=repo_root)
-        if status_ok:
-            if status_out.strip():
+        if st.button("Run Git Status", use_container_width=True):
+            status_ok, status_out = run_git_command(["status"], cwd=repo_root)
+            if status_ok:
                 st.code(status_out, language="bash")
             else:
-                st.success("✨ Working tree clean. No pending uncommitted changes.")
-        else:
-            st.markdown(f'<div class="banner-info">{status_out}</div>', unsafe_allow_html=True)
+                st.error(status_out)
 
 
 # ------------------------------------------ #
